@@ -134,8 +134,19 @@ async def claw(
         )
         return
 
-    machine_name = machine.value
-    prize = random.choice(MACHINES[machine_name]["prizes"])
+        machine_name = machine.value
+    prize_pool = MACHINES[machine_name]["prizes"]
+
+    # Select the exact entry before creating the animation.
+    prize_index = random.randrange(len(prize_pool))
+    prize = prize_pool[prize_index]
+
+    # Generate the GIF using that exact prize position.
+    gif_buffer = animation.create_claw_gif(
+        machine_name=machine_name,
+        prizes=prize_pool,
+        selected_index=prize_index
+    )
 
     database.save_attempt(
         member_id=member.id,
@@ -157,12 +168,19 @@ async def claw(
         color=0x83A96B
     )
 
+    embed.set_image(url="attachment://matchi_claw.gif")
     embed.set_footer(
         text="Remember to arrange the prize in the member's ticket!"
     )
 
+    gif_file = discord.File(
+        gif_buffer,
+        filename="matchi_claw.gif"
+    )
+
     await interaction.response.send_message(
         embed=embed,
+        file=gif_file,
         ephemeral=True
     )
 
