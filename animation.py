@@ -1,32 +1,31 @@
+
 from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+import math
 
 
 WIDTH, HEIGHT = 800, 600
 
-DARK = (38, 68, 48)
-GREEN = (105, 151, 91)
-LIGHT = (187, 215, 155)
-CREAM = (255, 250, 225)
-GOLD = (220, 184, 99)
+TRANSPARENT = (0, 0, 0, 0)
+DARK = (27, 53, 39, 255)
+FOREST = (43, 78, 52, 255)
+JADE = (91, 139, 79, 255)
+MATCHA = (137, 177, 108, 255)
+PALE = (225, 239, 203, 255)
+CREAM = (255, 249, 226, 255)
+GOLD = (225, 190, 105, 255)
+SHADOW = (20, 35, 25, 100)
 
 CAPSULE_COLORS = [
-    (244, 218, 155),
-    (164, 202, 139),
-    (244, 235, 203),
-    (132, 177, 119),
-    (226, 195, 127),
-    (203, 224, 177),
-    (242, 224, 180),
-    (114, 157, 100),
+    (245, 219, 157, 255),
+    (164, 202, 139, 255),
+    (248, 239, 211, 255),
+    (126, 171, 113, 255),
+    (226, 193, 122, 255),
+    (202, 224, 177, 255),
+    (243, 224, 178, 255),
+    (105, 151, 91, 255),
 ]
-
-
-def font(size):
-    try:
-        return ImageFont.truetype("DejaVuSans.ttf", size)
-    except OSError:
-        return ImageFont.load_default()
 
 
 def prize_position(index, count):
@@ -39,206 +38,314 @@ def prize_position(index, count):
     col = index % columns
     row = index // columns
 
-    x = start_x + col * cell_w + cell_w // 2
-    y = start_y + row * cell_h + cell_h // 2
+    return (
+        start_x + col * cell_w + cell_w // 2,
+        start_y + row * cell_h + cell_h // 2
+    )
 
-    return x, y
+
+def rounded(draw, coords, radius, fill, outline=None, width=1):
+    draw.rounded_rectangle(
+        coords,
+        radius=radius,
+        fill=fill,
+        outline=outline,
+        width=width
+    )
+
+
+def draw_capsule(draw, x, y, color, highlighted=False):
+    # Soft capsule shadow
+    draw.ellipse(
+        (x - 23, y - 11, x + 23, y + 20),
+        fill=(30, 45, 29, 55)
+    )
+
+    # Capsule body
+    draw.ellipse(
+        (x - 21, y - 16, x + 21, y + 16),
+        fill=color,
+        outline=(255, 248, 220, 255),
+        width=2
+    )
+
+    # Glossy highlight
+    draw.ellipse(
+        (x - 12, y - 11, x + 3, y - 3),
+        fill=(255, 255, 240, 205)
+    )
+
+    # Capsule seam
+    draw.line(
+        (x, y - 13, x, y + 13),
+        fill=(255, 249, 225, 200),
+        width=2
+    )
+
+    if highlighted:
+        draw.ellipse(
+            (x - 25, y - 20, x + 25, y + 20),
+            outline=GOLD,
+            width=3
+        )
 
 
 def make_frame(machine_name, prizes, selected_index,
                claw_x, claw_y, grabbed=False):
-    # Transparent canvas: no solid rectangular background.
-    image = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+
+    image = Image.new("RGBA", (WIDTH, HEIGHT), TRANSPARENT)
     draw = ImageDraw.Draw(image)
 
-    # Rounded machine cabinet.
-    draw.rounded_rectangle(
+    # Soft shadow behind the machine
+    draw.ellipse(
+        (115, 525, 685, 575),
+        fill=SHADOW
+    )
+
+    # Main cabinet
+    rounded(
+        draw,
         (75, 28, 725, 558),
-        radius=48,
-        fill=DARK,
-        outline=GOLD,
-        width=5
+        48,
+        DARK,
+        GOLD,
+        5
     )
 
-    # Rounded top canopy.
-    draw.rounded_rectangle(
-        (94, 45, 706, 151),
-        radius=32,
-        fill=GREEN,
-        outline=LIGHT,
-        width=3
+    # Outer glossy edge
+    rounded(
+        draw,
+        (85, 38, 715, 548),
+        42,
+        FOREST,
+        MATCHA,
+        3
     )
 
-    # Machine title.
-    title = "MATCHI'S JADE CLAW"
-    box = draw.textbbox((0, 0), title, font=font(27))
-    title_w = box[2] - box[0]
-
-    draw.text(
-        ((WIDTH - title_w) // 2, 70),
-        title,
-        font=font(27),
-        fill=CREAM
+    # Top panel
+    rounded(
+        draw,
+        (96, 47, 704, 151),
+        31,
+        JADE,
+        GOLD,
+        3
     )
 
-    # Small decorative dots on the canopy.
-    for x in (126, 674):
-        draw.ellipse(
-            (x - 5, 94, x + 5, 104),
-            fill=GOLD
-        )
-
-    # Glass compartment.
-    draw.rounded_rectangle(
-        (105, 135, 695, 480),
-        radius=25,
-        fill=(229, 238, 207),
-        outline=LIGHT,
-        width=5
-    )
-
-    # Subtle glass shine.
-    draw.line(
-        (126, 159, 126, 286),
-        fill=(248, 252, 235),
+    # Decorative shine on top panel
+    draw.arc(
+        (112, 53, 688, 130),
+        190,
+        340,
+        fill=(225, 245, 196, 170),
         width=4
     )
 
-    # All prizes look like mystery capsules.
-    # Names, numbers, and prize values are never drawn.
-    for index in range(len(prizes)):
-        x, y = prize_position(index, len(prizes))
+    # Header text
+    title = "MATCHI'S JADE CLAW"
+    try:
+        from PIL import ImageFont
+        title_font = ImageFont.truetype("DejaVuSans-Bold.ttf", 27)
+    except OSError:
+        title_font = ImageFont.load_default()
 
-        color = CAPSULE_COLORS[index % len(CAPSULE_COLORS)]
-        radius_x = 21
-        radius_y = 15
+    bbox = draw.textbbox((0, 0), title, font=title_font)
+    title_width = bbox[2] - bbox[0]
 
-        draw.ellipse(
-            (
-                x - radius_x,
-                y - radius_y,
-                x + radius_x,
-                y + radius_y
-            ),
-            fill=color,
-            outline=(255, 248, 218),
-            width=2
-        )
-
-        # Decorative capsule seam.
-        draw.line(
-            (x - 12, y, x + 12, y),
-            fill=(255, 247, 221),
-            width=2
-        )
-
-        # Gold ring identifies the selected capsule
-        # without revealing its prize name.
-        if index == selected_index:
-            draw.ellipse(
-                (
-                    x - radius_x - 4,
-                    y - radius_y - 4,
-                    x + radius_x + 4,
-                    y + radius_y + 4
-                ),
-                outline=GOLD,
-                width=3
-            )
-
-    # Claw cable and mechanism.
-    draw.line(
-        (claw_x, 143, claw_x, claw_y),
-        fill=(225, 220, 188),
-        width=5
+    draw.text(
+        ((WIDTH - title_width) // 2, 75),
+        title,
+        font=title_font,
+        fill=CREAM,
+        stroke_width=1,
+        stroke_fill=FOREST
     )
 
-    draw.rounded_rectangle(
-        (claw_x - 17, claw_y - 9,
-         claw_x + 17, claw_y + 9),
-        radius=6,
-        fill=GOLD,
-        outline=DARK,
+    # Gold corner ornaments
+    for x in (126, 674):
+        draw.ellipse(
+            (x - 7, 94, x + 7, 108),
+            fill=GOLD,
+            outline=CREAM,
+            width=2
+        )
+
+    # Glass window shadow
+    rounded(
+        draw,
+        (101, 132, 699, 484),
+        28,
+        DARK
+    )
+
+    # Glass window
+    rounded(
+        draw,
+        (108, 138, 692, 477),
+        23,
+        PALE,
+        MATCHA,
+        4
+    )
+
+    # Subtle glass reflections
+    draw.line(
+        (130, 158, 130, 270),
+        fill=(255, 255, 245, 170),
+        width=5
+    )
+    draw.line(
+        (140, 158, 140, 225),
+        fill=(255, 255, 255, 100),
         width=2
     )
 
-    # Claw prongs.
+    draw.arc(
+        (130, 145, 675, 465),
+        195,
+        280,
+        fill=(255, 255, 255, 95),
+        width=3
+    )
+
+    # Prize capsules: no text, labels, or numbers
+    for index in range(len(prizes)):
+        x, y = prize_position(index, len(prizes))
+        color = CAPSULE_COLORS[index % len(CAPSULE_COLORS)]
+        draw_capsule(draw, x, y, color)
+
+    # Claw cable
+    draw.line(
+        (claw_x, 143, claw_x, claw_y),
+        fill=(255, 247, 214, 255),
+        width=7
+    )
+    draw.line(
+        (claw_x - 2, 145, claw_x - 2, claw_y - 2),
+        fill=(172, 145, 84, 255),
+        width=2
+    )
+
+    # Claw head
+    rounded(
+        draw,
+        (claw_x - 20, claw_y - 12,
+         claw_x + 20, claw_y + 10),
+        8,
+        GOLD,
+        CREAM,
+        2
+    )
+
+    draw.ellipse(
+        (claw_x - 7, claw_y - 8,
+         claw_x + 7, claw_y + 4),
+        fill=CREAM
+    )
+
+    # Claw arms
     if grabbed:
         draw.line(
             (claw_x - 8, claw_y + 5,
-             claw_x - 5, claw_y + 23),
-            fill=DARK,
-            width=5
+             claw_x - 6, claw_y + 24),
+            fill=GOLD,
+            width=6
         )
         draw.line(
             (claw_x + 8, claw_y + 5,
-             claw_x + 5, claw_y + 23),
-            fill=DARK,
-            width=5
+             claw_x + 6, claw_y + 24),
+            fill=GOLD,
+            width=6
         )
 
-        # Capsule held by the claw.
+        capsule_color = CAPSULE_COLORS[
+            selected_index % len(CAPSULE_COLORS)
+        ]
+
         draw.ellipse(
-            (claw_x - 12, claw_y + 18,
-             claw_x + 12, claw_y + 36),
-            fill=CAPSULE_COLORS[
-                selected_index % len(CAPSULE_COLORS)
-            ],
+            (claw_x - 13, claw_y + 17,
+             claw_x + 13, claw_y + 39),
+            fill=capsule_color,
             outline=GOLD,
             width=2
+        )
+        draw.ellipse(
+            (claw_x - 8, claw_y + 20,
+             claw_x - 1, claw_y + 25),
+            fill=CREAM
         )
     else:
         draw.line(
             (claw_x - 8, claw_y + 5,
-             claw_x - 18, claw_y + 22),
-            fill=DARK,
-            width=5
+             claw_x - 19, claw_y + 22),
+            fill=GOLD,
+            width=6
         )
         draw.line(
             (claw_x + 8, claw_y + 5,
-             claw_x + 18, claw_y + 22),
-            fill=DARK,
-            width=5
+             claw_x + 19, claw_y + 22),
+            fill=GOLD,
+            width=6
         )
 
-    # Rounded collection chute.
-    draw.rounded_rectangle(
+    # Bottom prize collection slot
+    rounded(
+        draw,
         (258, 493, 542, 541),
-        radius=22,
-        fill=GREEN,
-        outline=GOLD,
-        width=3
+        22,
+        JADE,
+        GOLD,
+        3
     )
 
-    draw.rounded_rectangle(
+    rounded(
+        draw,
         (282, 505, 518, 529),
-        radius=12,
-        fill=DARK
+        12,
+        DARK
     )
+
+    # Small glossy reflection on collection slot
+    draw.line(
+        (301, 509, 499, 509),
+        fill=(255, 255, 235, 100),
+        width=2
+    )
+
+    # Small decorative gold dots
+    for x in (113, 687):
+        for y in (169, 458):
+            draw.ellipse(
+                (x - 3, y - 3, x + 3, y + 3),
+                fill=GOLD
+            )
 
     return image
 
 
 def to_gif_frame(image):
-    # Reserve palette index 255 for transparent pixels.
     rgba = image.convert("RGBA")
     alpha = rgba.getchannel("A")
 
-    frame = rgba.convert("RGB").quantize(
+    # Reserve palette index 255 for transparency
+    rgb = Image.new("RGB", rgba.size, (0, 0, 0))
+    rgb.paste(rgba, mask=alpha)
+
+    frame = rgb.quantize(
         colors=255,
         method=Image.Quantize.MEDIANCUT
     )
 
-    frame.putpalette(
-        frame.getpalette()[:765] + [0, 0, 0]
-    )
+    palette = frame.getpalette()
+    palette = palette[:765] + [0, 0, 0]
+    frame.putpalette(palette)
 
     pixels = frame.load()
-    mask = alpha.load()
+    alpha_pixels = alpha.load()
 
     for y in range(HEIGHT):
         for x in range(WIDTH):
-            if mask[x, y] < 128:
+            if alpha_pixels[x, y] < 128:
                 pixels[x, y] = 255
 
     return frame
@@ -260,56 +367,74 @@ def create_claw_gif(machine_name, prizes, selected_index):
 
     frames = []
 
-    # Move horizontally toward the selected capsule.
-    for step in range(13):
-        t = step / 12
-        x = round(start_x + (target_x - start_x) * t)
+    # Move the claw horizontally
+    for step in range(19):
+        t = step / 18
+        eased = (1 - math.cos(math.pi * t)) / 2
+        x = round(start_x + (target_x - start_x) * eased)
 
-        frames.append(make_frame(
-            machine_name, prizes, selected_index,
-            x, start_y
-        ))
+        frames.append(
+            make_frame(
+                machine_name, prizes, selected_index,
+                x, start_y
+            )
+        )
 
-    # Lower the claw.
-    for step in range(11):
-        t = step / 10
-        y = round(start_y + (target_y - start_y) * t)
+    # Lower the claw
+    for step in range(15):
+        t = step / 14
+        eased = t * t
+        y = round(start_y + (target_y - start_y) * eased)
 
-        frames.append(make_frame(
-            machine_name, prizes, selected_index,
-            target_x, y
-        ))
+        frames.append(
+            make_frame(
+                machine_name, prizes, selected_index,
+                target_x, y
+            )
+        )
 
-    # Grab the capsule.
-    for _ in range(5):
-        frames.append(make_frame(
-            machine_name, prizes, selected_index,
-            target_x, target_y, grabbed=True
-        ))
+    # Grab the capsule
+    for _ in range(6):
+        frames.append(
+            make_frame(
+                machine_name, prizes, selected_index,
+                target_x, target_y, grabbed=True
+            )
+        )
 
-    # Lift it up.
-    for step in range(13):
-        t = step / 12
-        y = round(target_y + (start_y - target_y) * t)
+    # Lift the capsule
+    for step in range(15):
+        t = step / 14
+        eased = t * t
+        y = round(target_y + (start_y - target_y) * eased)
 
-        frames.append(make_frame(
-            machine_name, prizes, selected_index,
-            target_x, y, grabbed=True
-        ))
+        frames.append(
+            make_frame(
+                machine_name, prizes, selected_index,
+                target_x, y, grabbed=True
+            )
+        )
 
-    # Return to the center.
-    for step in range(13):
-        t = step / 12
-        x = round(target_x + (start_x - target_x) * t)
+    # Return to the center
+    for step in range(19):
+        t = step / 18
+        eased = (1 - math.cos(math.pi * t)) / 2
+        x = round(target_x + (start_x - target_x) * eased)
 
-        frames.append(make_frame(
-            machine_name, prizes, selected_index,
-            x, start_y, grabbed=True
-        ))
+        frames.append(
+            make_frame(
+                machine_name, prizes, selected_index,
+                x, start_y, grabbed=True
+            )
+        )
 
-    frames.extend([frames[-1].copy() for _ in range(6)])
+    # Pause at the end
+    frames.extend([frames[-1].copy() for _ in range(8)])
 
-    gif_frames = [to_gif_frame(frame) for frame in frames]
+    gif_frames = [
+        to_gif_frame(frame)
+        for frame in frames
+    ]
 
     output = BytesIO()
 
@@ -318,7 +443,7 @@ def create_claw_gif(machine_name, prizes, selected_index):
         format="GIF",
         save_all=True,
         append_images=gif_frames[1:],
-        duration=65,
+        duration=55,
         loop=0,
         optimize=False,
         disposal=2,
@@ -327,4 +452,5 @@ def create_claw_gif(machine_name, prizes, selected_index):
 
     output.seek(0)
     return output
+
 
