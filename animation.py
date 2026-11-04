@@ -1,301 +1,330 @@
-
-import discord
-from discord.ext import commands
-from discord import app_commands
-import os
-import random
-from datetime import datetime
-from dotenv import load_dotenv
-
-import database
-import animation
-from prizes import MACHINES
-
-load_dotenv()
-
-TOKEN = os.getenv("DISCORD_TOKEN")
-
-intents = discord.Intents.default()
-
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents
-)
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 
 
-def is_staff(interaction: discord.Interaction):
-    return interaction.user.guild_permissions.manage_messages
+WIDTH, HEIGHT = 800, 600
+
+DARK = (38, 68, 48)
+GREEN = (105, 151, 91)
+LIGHT = (187, 215, 155)
+CREAM = (255, 250, 225)
+GOLD = (220, 184, 99)
+
+CAPSULE_COLORS = [
+    (244, 218, 155),
+    (164, 202, 139),
+    (244, 235, 203),
+    (132, 177, 119),
+    (226, 195, 127),
+    (203, 224, 177),
+    (242, 224, 180),
+    (114, 157, 100),
+]
 
 
-@bot.event
-async def on_ready():
-    print(f"Matchi is online as {bot.user}!")
-
-    database.initialize_database()
-    print("Matchi database initialized!")
-
+def font(size):
     try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} slash commands!")
-    except Exception as error:
-        print(f"Command sync error: {error}")
+        return ImageFont.truetype("DejaVuSans.ttf", size)
+    except OSError:
+        return ImageFont.load_default()
 
 
-@bot.tree.command(
-    name="ping",
-    description="Check if Matchi is responding."
-)
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "🍵 Matchi is awake!"
+def prize_position(index, count):
+    columns = 8
+    cell_w = 69
+    cell_h = 47
+    start_x = 124
+    start_y = 186
+
+    col = index % columns
+    row = index // columns
+
+    x = start_x + col * cell_w + cell_w // 2
+    y = start_y + row * cell_h + cell_h // 2
+
+    return x, y
+
+
+def make_frame(machine_name, prizes, selected_index,
+               claw_x, claw_y, grabbed=False):
+    # Transparent canvas: no solid rectangular background.
+    image = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+
+    # Rounded machine cabinet.
+    draw.rounded_rectangle(
+        (75, 28, 725, 558),
+        radius=48,
+        fill=DARK,
+        outline=GOLD,
+        width=5
     )
 
+    # Rounded top canopy.
+    draw.rounded_rectangle(
+        (94, 45, 706, 151),
+        radius=32,
+        fill=GREEN,
+        outline=LIGHT,
+        width=3
+    )
 
-@bot.tree.command(
-    name="prizes",
-    description="View a machine's complete prize pool."
-)
-@app_commands.choices(
-    machine=[
-        app_commands.Choice(name=name, value=name)
-        for name in MACHINES.keys()
-    ]
-)
-async def prizes(
-    interaction: discord.Interaction,
-    machine: app_commands.Choice[str]
-):
-    if not is_staff(interaction):
-        await interaction.response.send_message(
-            "🍵 You don't have permission to use this command.",
-            ephemeral=True
+    # Machine title.
+    title = "MATCHI'S JADE CLAW"
+    box = draw.textbbox((0, 0), title, font=font(27))
+    title_w = box[2] - box[0]
+
+    draw.text(
+        ((WIDTH - title_w) // 2, 70),
+        title,
+        font=font(27),
+        fill=CREAM
+    )
+
+    # Small decorative dots on the canopy.
+    for x in (126, 674):
+        draw.ellipse(
+            (x - 5, 94, x + 5, 104),
+            fill=GOLD
         )
-        return
 
-    machine_data = MACHINES[machine.value]
-
-    prize_list = "\n".join(
-        f"**{index}.** {prize}"
-        for index, prize in enumerate(
-            machine_data["prizes"], start=1
-        )
+    # Glass compartment.
+    draw.rounded_rectangle(
+        (105, 135, 695, 480),
+        radius=25,
+        fill=(229, 238, 207),
+        outline=LIGHT,
+        width=5
     )
 
-    embed = discord.Embed(
-        title=f"🍵 {machine.value}",
-        description=prize_list,
-        color=0x83A96B
+    # Subtle glass shine.
+    draw.line(
+        (126, 159, 126, 286),
+        fill=(248, 252, 235),
+        width=4
     )
 
-    embed.add_field(
-        name="Machine Price",
-        value=f"{machine_data['price']:,} Jade Points",
-        inline=True
-    )
+    # All prizes look like mystery capsules.
+    # Names, numbers, and prize values are never drawn.
+    for index in range(len(prizes)):
+        x, y = prize_position(index, len(prizes))
 
-    embed.add_field(
-        name="Prize Entries",
-        value=str(len(machine_data["prizes"])),
-        inline=True
-    )
+        color = CAPSULE_COLORS[index % len(CAPSULE_COLORS)]
+        radius_x = 21
+        radius_y = 15
 
-    await interaction.response.send_message(
-        embed=embed,
-        ephemeral=True
-    )
-
-
-@bot.tree.command(
-    name="claw",
-    description="Operate a claw machine for a member."
-)
-@app_commands.choices(
-    machine=[
-        app_commands.Choice(name=name, value=name)
-        for name in MACHINES.keys()
-    ]
-)
-async def claw(
-    interaction: discord.Interaction,
-    member: discord.Member,
-    machine: app_commands.Choice[str],
-    points_deducted: bool
-):
-    if not is_staff(interaction):
-        await interaction.response.send_message(
-            "🍵 You don't have permission to use this command.",
-            ephemeral=True
-        )
-        return
-
-    if not points_deducted:
-        await interaction.response.send_message(
-            "🍵 Deduct the member's Jade Points in the forum before operating the machine.",
-            ephemeral=True
-        )
-        return
-
-    # Acknowledge the interaction before generating the GIF.
-    await interaction.response.defer(
-        ephemeral=True,
-        thinking=True
-    )
-
-    machine_name = machine.value
-    prize_pool = MACHINES[machine_name]["prizes"]
-
-    if not prize_pool:
-        await interaction.followup.send(
-            "🍵 This machine has no prizes configured.",
-            ephemeral=True
-        )
-        return
-
-    # Select the exact prize entry before creating the animation.
-    prize_index = random.randrange(len(prize_pool))
-    prize = prize_pool[prize_index]
-
-    # Generate the animated GIF.
-    try:
-        gif_buffer = animation.create_claw_gif(
-            machine_name=machine_name,
-            prizes=prize_pool,
-            selected_index=prize_index
-        )
-    except Exception as error:
-        print(f"Animation generation error: {error}")
-        await interaction.followup.send(
-            "🍵 The claw animation couldn't be generated. "
-            "No attempt was recorded. Please try again.",
-            ephemeral=True
-        )
-        return
-
-    # Record the attempt after successful animation generation.
-    database.save_attempt(
-        member_id=member.id,
-        member_name=member.display_name,
-        staff_id=interaction.user.id,
-        staff_name=interaction.user.display_name,
-        machine=machine_name,
-        prize=prize,
-        attempt_type="Paid"
-    )
-
-    embed = discord.Embed(
-        title="🍵 Jade Claw Machine",
-        description=(
-            f"**Member:** {member.mention}\n"
-            f"**Machine:** {machine_name}\n\n"
-            f"🎁 **Prize won:** {prize}"
-        ),
-        color=0x83A96B
-    )
-
-    embed.set_image(url="attachment://matchi_claw.gif")
-    embed.set_footer(
-        text="Remember to arrange the prize in the member's ticket!"
-    )
-
-    gif_file = discord.File(
-        gif_buffer,
-        filename="matchi_claw.gif"
-    )
-
-    await interaction.followup.send(
-        embed=embed,
-        file=gif_file,
-        ephemeral=True
-    )
-
-
-@bot.tree.command(
-    name="history",
-    description="View previous Jade Claw Machine attempts."
-)
-@app_commands.describe(
-    member="Optional: view attempts for one member."
-)
-async def history(
-    interaction: discord.Interaction,
-    member: discord.Member = None
-):
-    if not is_staff(interaction):
-        await interaction.response.send_message(
-            "🍵 You don't have permission to use this command.",
-            ephemeral=True
-        )
-        return
-
-    with database.connect() as db:
-        if member is None:
-            rows = db.execute("""
-                SELECT member_name, staff_name, machine,
-                       prize, attempt_type, created_at
-                FROM attempts
-                ORDER BY id DESC
-                LIMIT 10
-            """).fetchall()
-        else:
-            rows = db.execute("""
-                SELECT member_name, staff_name, machine,
-                       prize, attempt_type, created_at
-                FROM attempts
-                WHERE member_id = ?
-                ORDER BY id DESC
-                LIMIT 10
-            """, (str(member.id),)).fetchall()
-
-    if not rows:
-        await interaction.response.send_message(
-            "🍵 No claw attempts were found.",
-            ephemeral=True
-        )
-        return
-
-    embed = discord.Embed(
-        title="📜 Jade Claw Machine History",
-        description=(
-            f"Showing the latest 10 attempts for {member.mention}."
-            if member else
-            "Showing the latest 10 attempts across all members."
-        ),
-        color=0x83A96B
-    )
-
-    for (
-        member_name,
-        staff_name,
-        machine_name,
-        prize,
-        attempt_type,
-        created_at
-    ) in rows:
-        try:
-            date_text = datetime.fromisoformat(
-                created_at
-            ).strftime("%b %d, %Y • %I:%M %p UTC")
-        except (ValueError, TypeError):
-            date_text = str(created_at)
-
-        embed.add_field(
-            name=f"🎁 {member_name} — {prize}",
-            value=(
-                f"**Machine:** {machine_name}\n"
-                f"**Operated by:** {staff_name}\n"
-                f"**Attempt:** {attempt_type}\n"
-                f"**Date:** {date_text}"
+        draw.ellipse(
+            (
+                x - radius_x,
+                y - radius_y,
+                x + radius_x,
+                y + radius_y
             ),
-            inline=False
+            fill=color,
+            outline=(255, 248, 218),
+            width=2
         )
 
-    await interaction.response.send_message(
-        embed=embed,
-        ephemeral=True
+        # Decorative capsule seam.
+        draw.line(
+            (x - 12, y, x + 12, y),
+            fill=(255, 247, 221),
+            width=2
+        )
+
+        # Gold ring identifies the selected capsule
+        # without revealing its prize name.
+        if index == selected_index:
+            draw.ellipse(
+                (
+                    x - radius_x - 4,
+                    y - radius_y - 4,
+                    x + radius_x + 4,
+                    y + radius_y + 4
+                ),
+                outline=GOLD,
+                width=3
+            )
+
+    # Claw cable and mechanism.
+    draw.line(
+        (claw_x, 143, claw_x, claw_y),
+        fill=(225, 220, 188),
+        width=5
     )
 
+    draw.rounded_rectangle(
+        (claw_x - 17, claw_y - 9,
+         claw_x + 17, claw_y + 9),
+        radius=6,
+        fill=GOLD,
+        outline=DARK,
+        width=2
+    )
 
-if TOKEN is None:
-    raise ValueError("DISCORD_TOKEN is missing!")
+    # Claw prongs.
+    if grabbed:
+        draw.line(
+            (claw_x - 8, claw_y + 5,
+             claw_x - 5, claw_y + 23),
+            fill=DARK,
+            width=5
+        )
+        draw.line(
+            (claw_x + 8, claw_y + 5,
+             claw_x + 5, claw_y + 23),
+            fill=DARK,
+            width=5
+        )
 
-bot.run(TOKEN)
+        # Capsule held by the claw.
+        draw.ellipse(
+            (claw_x - 12, claw_y + 18,
+             claw_x + 12, claw_y + 36),
+            fill=CAPSULE_COLORS[
+                selected_index % len(CAPSULE_COLORS)
+            ],
+            outline=GOLD,
+            width=2
+        )
+    else:
+        draw.line(
+            (claw_x - 8, claw_y + 5,
+             claw_x - 18, claw_y + 22),
+            fill=DARK,
+            width=5
+        )
+        draw.line(
+            (claw_x + 8, claw_y + 5,
+             claw_x + 18, claw_y + 22),
+            fill=DARK,
+            width=5
+        )
+
+    # Rounded collection chute.
+    draw.rounded_rectangle(
+        (258, 493, 542, 541),
+        radius=22,
+        fill=GREEN,
+        outline=GOLD,
+        width=3
+    )
+
+    draw.rounded_rectangle(
+        (282, 505, 518, 529),
+        radius=12,
+        fill=DARK
+    )
+
+    return image
+
+
+def to_gif_frame(image):
+    # Reserve palette index 255 for transparent pixels.
+    rgba = image.convert("RGBA")
+    alpha = rgba.getchannel("A")
+
+    frame = rgba.convert("RGB").quantize(
+        colors=255,
+        method=Image.Quantize.MEDIANCUT
+    )
+
+    frame.putpalette(
+        frame.getpalette()[:765] + [0, 0, 0]
+    )
+
+    pixels = frame.load()
+    mask = alpha.load()
+
+    for y in range(HEIGHT):
+        for x in range(WIDTH):
+            if mask[x, y] < 128:
+                pixels[x, y] = 255
+
+    return frame
+
+
+def create_claw_gif(machine_name, prizes, selected_index):
+    if not prizes:
+        raise ValueError("This machine has no prizes.")
+
+    if not 0 <= selected_index < len(prizes):
+        raise ValueError("Invalid prize position.")
+
+    target_x, target_y = prize_position(
+        selected_index, len(prizes)
+    )
+
+    start_x = WIDTH // 2
+    start_y = 160
+
+    frames = []
+
+    # Move horizontally toward the selected capsule.
+    for step in range(13):
+        t = step / 12
+        x = round(start_x + (target_x - start_x) * t)
+
+        frames.append(make_frame(
+            machine_name, prizes, selected_index,
+            x, start_y
+        ))
+
+    # Lower the claw.
+    for step in range(11):
+        t = step / 10
+        y = round(start_y + (target_y - start_y) * t)
+
+        frames.append(make_frame(
+            machine_name, prizes, selected_index,
+            target_x, y
+        ))
+
+    # Grab the capsule.
+    for _ in range(5):
+        frames.append(make_frame(
+            machine_name, prizes, selected_index,
+            target_x, target_y, grabbed=True
+        ))
+
+    # Lift it up.
+    for step in range(13):
+        t = step / 12
+        y = round(target_y + (start_y - target_y) * t)
+
+        frames.append(make_frame(
+            machine_name, prizes, selected_index,
+            target_x, y, grabbed=True
+        ))
+
+    # Return to the center.
+    for step in range(13):
+        t = step / 12
+        x = round(target_x + (start_x - target_x) * t)
+
+        frames.append(make_frame(
+            machine_name, prizes, selected_index,
+            x, start_y, grabbed=True
+        ))
+
+    frames.extend([frames[-1].copy() for _ in range(6)])
+
+    gif_frames = [to_gif_frame(frame) for frame in frames]
+
+    output = BytesIO()
+
+    gif_frames[0].save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=gif_frames[1:],
+        duration=65,
+        loop=0,
+        optimize=False,
+        disposal=2,
+        transparency=255
+    )
+
+    output.seek(0)
+    return output
+
