@@ -1,3 +1,4 @@
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -5,9 +6,9 @@ import os
 import random
 from datetime import datetime
 from dotenv import load_dotenv
-import animation
 
 import database
+import animation
 from prizes import MACHINES
 
 load_dotenv()
@@ -134,20 +135,43 @@ async def claw(
         )
         return
 
-        machine_name = machine.value
+    # Acknowledge the interaction before generating the GIF.
+    await interaction.response.defer(
+        ephemeral=True,
+        thinking=True
+    )
+
+    machine_name = machine.value
     prize_pool = MACHINES[machine_name]["prizes"]
 
-    # Select the exact entry before creating the animation.
+    if not prize_pool:
+        await interaction.followup.send(
+            "🍵 This machine has no prizes configured.",
+            ephemeral=True
+        )
+        return
+
+    # Select the exact prize entry before creating the animation.
     prize_index = random.randrange(len(prize_pool))
     prize = prize_pool[prize_index]
 
-    # Generate the GIF using that exact prize position.
-    gif_buffer = animation.create_claw_gif(
-        machine_name=machine_name,
-        prizes=prize_pool,
-        selected_index=prize_index
-    )
+    # Generate the animated GIF.
+    try:
+        gif_buffer = animation.create_claw_gif(
+            machine_name=machine_name,
+            prizes=prize_pool,
+            selected_index=prize_index
+        )
+    except Exception as error:
+        print(f"Animation generation error: {error}")
+        await interaction.followup.send(
+            "🍵 The claw animation couldn't be generated. "
+            "No attempt was recorded. Please try again.",
+            ephemeral=True
+        )
+        return
 
+    # Record the attempt after successful animation generation.
     database.save_attempt(
         member_id=member.id,
         member_name=member.display_name,
@@ -178,7 +202,7 @@ async def claw(
         filename="matchi_claw.gif"
     )
 
-    await interaction.response.send_message(
+    await interaction.followup.send(
         embed=embed,
         file=gif_file,
         ephemeral=True
@@ -239,13 +263,20 @@ async def history(
         color=0x83A96B
     )
 
-    for member_name, staff_name, machine_name, prize, attempt_type, created_at in rows:
+    for (
+        member_name,
+        staff_name,
+        machine_name,
+        prize,
+        attempt_type,
+        created_at
+    ) in rows:
         try:
             date_text = datetime.fromisoformat(
                 created_at
             ).strftime("%b %d, %Y • %I:%M %p UTC")
-        except ValueError:
-            date_text = created_at
+        except (ValueError, TypeError):
+            date_text = str(created_at)
 
         embed.add_field(
             name=f"🎁 {member_name} — {prize}",
