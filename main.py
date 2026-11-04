@@ -1,8 +1,10 @@
 
+
 import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
+import database
 
 load_dotenv()
 
@@ -19,6 +21,9 @@ bot = commands.Bot(
 @bot.event
 async def on_ready():
     print(f"Matchi is online as {bot.user}!")
+
+    database.initialize_database()
+    print("Matchi database initialized!")
 
     try:
         synced = await bot.tree.sync()
