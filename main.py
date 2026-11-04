@@ -1,4 +1,3 @@
-
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -6,6 +5,7 @@ import os
 import random
 from datetime import datetime
 from dotenv import load_dotenv
+import animation
 
 import database
 from prizes import MACHINES
