@@ -1,7 +1,6 @@
 
 import os
 import random
-import sqlite3
 
 import discord
 from discord import app_commands
@@ -16,12 +15,43 @@ from prizes import MACHINES
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
+# Only members with this Discord role can use Matchi commands.
+HQ_ROLE_ID = 1546538861578944602
+
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def is_staff(interaction: discord.Interaction) -> bool:
-    return interaction.user.guild_permissions.manage_messages
+    """Return True only if the user has the HQ role."""
+    if not isinstance(interaction.user, discord.Member):
+        return False
+
+    return any(
+        role.name == HQ_ROLE_NAME
+        for role in interaction.user.roles
+    )
+
+
+async def require_hq(interaction: discord.Interaction) -> bool:
+    """Block anyone who does not have the HQ role."""
+    if not is_staff(interaction):
+        message = "🍵 Only members with the @HQ role can use Matchi commands."
+
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                message,
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                message,
+                ephemeral=True
+            )
+
+        return False
+
+    return True
 
 
 def machine_details(machine_name):
@@ -70,7 +100,13 @@ async def on_ready():
     description="Check whether Matchi is online."
 )
 async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("🍵 Matchi is awake!")
+    if not await require_hq(interaction):
+        return
+
+    await interaction.response.send_message(
+        "🍵 Matchi is awake!",
+        ephemeral=True
+    )
 
 
 @bot.tree.command(
@@ -87,11 +123,7 @@ async def prizes(
     interaction: discord.Interaction,
     machine: app_commands.Choice[str]
 ):
-    if not is_staff(interaction):
-        await interaction.response.send_message(
-            "You don't have permission to use this command.",
-            ephemeral=True
-        )
+    if not await require_hq(interaction):
         return
 
     price, prize_pool = machine_details(machine.value)
@@ -133,11 +165,7 @@ async def claw(
     machine: app_commands.Choice[str],
     attempt_type: app_commands.Choice[str]
 ):
-    if not is_staff(interaction):
-        await interaction.response.send_message(
-            "You don't have permission to use this command.",
-            ephemeral=True
-        )
+    if not await require_hq(interaction):
         return
 
     _, prize_pool = machine_details(machine.value)
@@ -215,11 +243,7 @@ async def history(
     interaction: discord.Interaction,
     member: discord.Member = None
 ):
-    if not is_staff(interaction):
-        await interaction.response.send_message(
-            "You don't have permission to use this command.",
-            ephemeral=True
-        )
+    if not await require_hq(interaction):
         return
 
     try:
@@ -289,10 +313,17 @@ async def history(
 
     except Exception as error:
         print(f"History command error: {error}")
-        await interaction.response.send_message(
-            "Couldn't load claw history. Check the bot console.",
-            ephemeral=True
-        )
+
+        if interaction.response.is_done():
+            await interaction.followup.send(
+                "Couldn't load claw history. Check the bot console.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Couldn't load claw history. Check the bot console.",
+                ephemeral=True
+            )
 
 
 if not TOKEN:
@@ -300,4 +331,6 @@ if not TOKEN:
         "DISCORD_TOKEN is missing. Check your .env file."
     )
 
+
 bot.run(TOKEN)
+
