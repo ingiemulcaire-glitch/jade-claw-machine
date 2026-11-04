@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import os
+import random
 from dotenv import load_dotenv
 
 import database
@@ -18,6 +19,10 @@ bot = commands.Bot(
     command_prefix="!",
     intents=intents
 )
+
+
+def is_staff(interaction: discord.Interaction):
+    return interaction.user.guild_permissions.manage_messages
 
 
 @bot.event
@@ -58,7 +63,7 @@ async def prizes(
     interaction: discord.Interaction,
     machine: app_commands.Choice[str]
 ):
-    if not interaction.user.guild_permissions.manage_messages:
+    if not is_staff(interaction):
         await interaction.response.send_message(
             "🍵 You don't have permission to use this command.",
             ephemeral=True
@@ -90,6 +95,71 @@ async def prizes(
         name="Prize Entries",
         value=str(len(machine_data["prizes"])),
         inline=True
+    )
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="claw",
+    description="Operate a claw machine for a member."
+)
+@app_commands.choices(
+    machine=[
+        app_commands.Choice(name=name, value=name)
+        for name in MACHINES.keys()
+    ]
+)
+async def claw(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    machine: app_commands.Choice[str],
+    points_deducted: bool
+):
+    if not is_staff(interaction):
+        await interaction.response.send_message(
+            "🍵 You don't have permission to use this command.",
+            ephemeral=True
+        )
+        return
+
+    if not points_deducted:
+        await interaction.response.send_message(
+            "🍵 Please deduct the member's Jade Points in the forum before operating the machine.",
+            ephemeral=True
+        )
+        return
+
+    machine_name = machine.value
+    machine_data = MACHINES[machine_name]
+
+    prize = random.choice(machine_data["prizes"])
+
+    database.save_attempt(
+        member_id=member.id,
+        member_name=member.display_name,
+        staff_id=interaction.user.id,
+        staff_name=interaction.user.display_name,
+        machine=machine_name,
+        prize=prize,
+        attempt_type="Paid"
+    )
+
+    embed = discord.Embed(
+        title="🍵 Jade Claw Machine",
+        description=(
+            f"**Member:** {member.mention}\n"
+            f"**Machine:** {machine_name}\n\n"
+            f"🎁 **Prize won:** {prize}"
+        ),
+        color=0x83A96B
+    )
+
+    embed.set_footer(
+        text="Remember to arrange the prize delivery!"
     )
 
     await interaction.response.send_message(
