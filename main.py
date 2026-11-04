@@ -136,10 +136,11 @@ async def claw(
         return
 
     # Acknowledge the interaction before generating the GIF.
-    await interaction.response.defer(
-        ephemeral=True,
-        thinking=True
-    )
+    await interaction.followup.send(
+    embed=embed,
+    file=gif_file,
+    ephemeral=False
+)
 
     machine_name = machine.value
     prize_pool = MACHINES[machine_name]["prizes"]
