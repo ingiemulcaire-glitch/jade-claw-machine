@@ -15,7 +15,6 @@ bot = commands.Bot(
     intents=intents
 )
 
-
 @bot.event
 async def on_ready():
     print(f"Matchi is online as {bot.user}!")
@@ -29,7 +28,6 @@ async def on_ready():
     except Exception as error:
         print(f"Command sync error: {error}")
 
-
 @bot.tree.command(
     name="ping",
     description="Check if Matchi is responding."
@@ -38,7 +36,6 @@ async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(
         "🍵 Matchi is awake!"
     )
-
 
 if TOKEN is None:
     raise ValueError("DISCORD_TOKEN is missing!")
