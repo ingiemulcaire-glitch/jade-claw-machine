@@ -9,27 +9,35 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
-intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
+
 
 @bot.event
 async def on_ready():
     print(f"Matchi is online as {bot.user}!")
 
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} slash commands!")
+    except Exception as error:
+        print(f"Command sync error: {error}")
 
-    print(f"Message received: {message.content}")
 
-    await bot.process_commands(message)
+@bot.tree.command(
+    name="ping",
+    description="Check if Matchi is responding."
+)
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "🍵 Matchi is awake!"
+    )
 
-@bot.command()
-async def ping(ctx):
-    print("Ping command detected!")
-    await ctx.send("🍵 Matchi is awake!")
+
+if TOKEN is None:
+    raise ValueError("DISCORD_TOKEN is missing!")
 
 bot.run(TOKEN)
-
