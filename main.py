@@ -28,10 +28,9 @@ def is_staff(interaction: discord.Interaction) -> bool:
         return False
 
     return any(
-        role.name == HQ_ROLE_NAME
+        role.id == HQ_ROLE_ID
         for role in interaction.user.roles
     )
-
 
 async def require_hq(interaction: discord.Interaction) -> bool:
     """Block anyone who does not have the HQ role."""
